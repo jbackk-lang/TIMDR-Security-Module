@@ -1,20 +1,26 @@
-# TIMDR Security Module + TIMDR Server Module
+# TIMDR Security Module + TIMDR Server Module + TIMDR Rhythm Analyzer
 
-Dwa moduły do wykrywania anomalii metodą TIMDR (gradient przepływu,
-"twist" = nagła zmiana, TRM = redukcja szumu, anomaly score):
+Trzy moduły do wykrywania anomalii i wzorców w ruchu sieciowym/serwerowym
+metodą TIMDR (gradient przepływu, "twist" = nagła zmiana, TRM = redukcja
+szumu, anomaly score) plus analiza rytmiczności (autokorelacja):
 
 - **`timdr_security.py`** — ruch sieciowy: `[bytes_in, bytes_out, connections, t]`
   (ze zgłoszenia, przetestowany i naprawiony)
 - **`timdr_server.py`** — metryki serwera produkcyjnego:
   `[cpu_pct, mem_pct, load_avg, t]` (nowy moduł, dodany na prośbę
   "dodaj moduł dla serwerów produkcyjnych")
+- **`timdr_rhythm.py`** — wykrywanie periodyczności / beaconingu C2
+  (autokorelacja, `[value]` lub `[v1..vk]`) — domyka lukę opisaną
+  wcześniej w punkcie 4 "Zastosowań" (patrz niżej), gdzie zaznaczyliśmy,
+  że żaden z pozostałych detektorów faktycznie nie wykrywa rytmiczności.
 
 ## Status
 
 `timdr_security.py`: 7/7 testów. `timdr_server.py`: 15/15 testów
-(łącznie z testami dla `timdr_security.py`). Znalezione i naprawione w
-`timdr_security.py`: 3 błędy, w tym jeden powodujący, że własny
-przykład DDoS z opisu zgłoszenia nie był wykrywany.
+(łącznie z testami dla `timdr_security.py`). `timdr_rhythm.py`: 12/12
+testów. Łącznie 27/27. Znalezione i naprawione: 3 błędy w
+`timdr_security.py` (w tym jeden powodujący, że własny przykład DDoS z
+opisu zgłoszenia nie był wykrywany) i 2 błędy w `timdr_rhythm.py`.
 
 ## 🐛 Błędy znalezione w oryginalnym `timdr_security.py`
 
@@ -92,6 +98,54 @@ Zweryfikowano: licznik 10 000 000 → 500 (restart) → 20 000 daje bez
 poprawki `rate = -1 004 950/s` (nonsens), z poprawką `rate = 0/s`
 w kroku resetu. Test: `test_counters_to_rates_obsluga_restartu`.
 
+## 🆕 TIMDR Rhythm Analyzer — wykrywanie beaconingu C2
+
+![Wykrywanie beaconingu na sygnale wielocechowym](screenshot_rhythm_beacon_detection.png)
+
+Autokorelacyjny detektor periodyczności (`TIMDRRhythm.autocorr` /
+`dominant_periods` / `beacon_score`) — malware łączący się z C2 w
+regularnych odstępach zostawia charakterystyczny ślad rytmiczny, którego
+`twist()`/`anomaly_score()` (czułe na *amplitudę*, nie na *okresowość*)
+nie wykrywają. Znalezione i naprawione dwa błędy tej samej rodziny co
+wcześniej w `timdr_security.py`:
+
+### 1. Obciążony estymator autokorelacji (malejące okno nakładania)
+
+Oryginalny kod dzielił każdy lag przez stałą `ac[0]` (energię całego
+sygnału), nie korygując malejącej liczby nakładających się próbek przy
+rosnącym lagu. Zweryfikowano: czysta fala sinusoidalna, okres 20 próbek,
+200 próbek długości — piki autokorelacji przy lag=20,40,60,80,100
+**powinny** mieć tę samą wysokość (sygnał bez szumu), ale oryginalny
+kod dawał **liniowo malejący** profil: 0.90, 0.80, 0.70, 0.60, 0.50 —
+czysty artefakt estymatora, nie realna utrata periodyczności. Dla
+beaconingu oznaczało to: atakujący łączący się co 100 próbek wyglądał
+"słabiej rytmicznie" niż łączący się co 20 próbek, wyłącznie z powodu
+długości interwału, nie jego regularności. Naprawiono: każdy lag
+dzielony najpierw przez liczbę realnie nakładających się próbek
+(`n - lag`), dopiero potem normalizowany względem lagu=0 — powyższy
+test po poprawce daje dokładnie 1.0 na wszystkich pięciu lagach.
+
+### 2. Cecha o większej skali zagłusza rytm w sygnale wielocechowym
+
+Ten sam błąd co poprawka #3 w `timdr_security.py` (`anomaly_score`):
+`np.linalg.norm(x, axis=1)` na surowych, nieznormalizowanych cechach
+pozwalał cesze o dużej skali (`bytes`, rząd 1000) zdominować normę i
+zagłuszyć prawdziwy rytm w cesze o małej skali (`connections`, rząd 1).
+Zweryfikowano: sygnał `[bytes (szum, skala ~1000), connections (czysty
+beacon co 15 próbek)]` — na oryginalnym kodzie dominujący wykryty okres
+to lag=48 (artefakt szumu bytes, power=1.0), a prawdziwy beacon (lag=15)
+spadał do power=0.75, poza pozycją dominującą. Naprawiono: każda cecha
+normalizowana (z-score) przed połączeniem w normę — po poprawce lag=15
+poprawnie wychodzi jako dominujący (power=1.0), patrz zrzut ekranu
+powyżej.
+
+**Uczciwe zastrzeżenie**: norma L2 jest z definicji nieujemna, więc
+sygnał wielocechowy jest rektyfikowany (traci znak) nawet po poprawce —
+dla czysto sinusoidalnego rytmu w jednej znaczącej kolumnie oznacza to
+wykrycie też okresu o połowę krótszego (`|sin|` ma okres T/2, nie T).
+Dla nieregularnych, ostrych impulsów typu beacon to zwykle nie
+przeszkadza, ale warto o tym wiedzieć przy interpretacji wyników.
+
 ## 🎯 Zastosowania (i warunki, przy których mają sens)
 
 **1. IDS/IPS — flagowanie do przeglądu, nie automatyczna blokada**
@@ -116,14 +170,14 @@ skoki `bytes_out` — bez białej listy znanych, legalnych wzorców ruchu
 to źródło fałszywych alarmów, nie gotowy alarm.
 
 **4. Malware beaconing (regularne, rytmiczne połączenia)**
-README zgłoszenia sugeruje to jako zastosowanie TRM+TIMDR-flow, ale
-**żaden z dostarczonych detektorów faktycznie tego nie wykrywa** — TRM
-tylko wygładza szum, nie wykrywa okresowości. Do wykrywania rytmiczności
-potrzebna jest analiza autokorelacyjna (dokładnie taka, jaką dodaliśmy
-wcześniej w `RHYTHM ANALYZER v1.py` z MAGE-IN-IMAGE-DECODER) — to
-osobna funkcja, nie ma jej jeszcze w tym module. Zaznaczone jako
-świadomie NIE zaimplementowane, żeby nie sugerować możliwości, której
-kod nie ma.
+Wcześniej zaznaczone tu jako świadomie NIE zaimplementowane — `TRM`
+tylko wygładza szum, nie wykrywa okresowości, a `twist()`/
+`anomaly_score()` są czułe na amplitudę, nie na rytm. Teraz domknięte
+przez `timdr_rhythm.py` (`TIMDRRhythm.beacon_score`) — patrz sekcja
+wyżej. *Warunki:* `power_thresh` i `min_period` wymagają dostrojenia do
+typowej częstotliwości beaconingu w Twojej sieci; sygnał wielocechowy
+jest rektyfikowany (patrz zastrzeżenie w sekcji Rhythm Analyzer), więc
+warto sprawdzać też okres o połowę krótszy od zgłoszonego.
 
 **5. Lateral movement (zmiany connections)**
 Po poprawce #3 (normalizacja `anomaly_score`) i #1 (robust threshold w
@@ -139,14 +193,16 @@ scenariusza.
 - Progi domyślne (`ratio_thresh=0.4`, `z_thresh=3.5`,
   `slope_thresh_per_min=1.0`) to punkty startowe do dostrojenia, nie
   zwalidowane wartości branżowe.
-- Brak wbudowanej detekcji okresowości/rytmiczności (patrz punkt 4
-  wyżej) — do beaconingu potrzeba osobnego modułu autokorelacyjnego.
+- Okresowość/rytmiczność (beaconing) obsługuje teraz `timdr_rhythm.py`
+  (patrz sekcja Rhythm Analyzer) — nie łączy się automatycznie z
+  `twist()`/`anomaly_score()`, to osobne wywołanie na tych samych danych.
 
 ## Przykład użycia
 
 ```python
 from timdr_security import TIMDRSecurity
 from timdr_server import TIMDRServer
+from timdr_rhythm import TIMDRRhythm
 
 sec = TIMDRSecurity()
 flow = [[1000,800,12,0],[1200,900,13,1],[1500,1100,14,2],[5000,2000,40,3],[5200,2100,42,4]]
@@ -157,6 +213,10 @@ srv = TIMDRServer()
 metrics = [[20,40,0.5,0],[22,41,0.6,10],[95,42,4.0,20],[30,43,0.7,30],[25,44,0.6,40]]
 print(srv.twist(metrics))
 print(srv.trend(metrics, column=1))  # dryf mem_pct
+
+rhythm = TIMDRRhythm(max_lag=60, min_period=3, power_thresh=0.4)
+periods, score = rhythm.beacon_score(X)  # X: [bytes, connections, ...] per krok czasowy
 ```
 
-Uruchomienie: `python demo.py` / testy: `pytest -q`.
+Uruchomienie: `python demo.py` (security/server) / `python demo_rhythm.py`
+(rhythm) / testy: `pytest -q`.
