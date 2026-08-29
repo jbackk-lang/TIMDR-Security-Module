@@ -146,6 +146,47 @@ wykrycie też okresu o połowę krótszego (`|sin|` ma okres T/2, nie T).
 Dla nieregularnych, ostrych impulsów typu beacon to zwykle nie
 przeszkadza, ale warto o tym wiedzieć przy interpretacji wyników.
 
+## 🧪 Walidacja syntetyczna wg protokołu §13 (`timdr-signal-framework`)
+
+Powyższe testy jednostkowe sprawdzają POJEDYNCZE, ręcznie dobrane
+przykłady. Żeby odpowiedzieć uczciwie na pytanie "czy ta metoda
+faktycznie wykrywa DDoS", zbudowano dodatkowy test (`test_ddos_synthetic_protocol.py`,
+pełny przebieg walidacyjny: 300 prób z atakiem + 300 kontrolnych bez
+ataku, seed ustalony z góry, jeden przebieg): losowe tło sieciowe
+(szum realistyczny, nie dopasowany pod próg) + atak DDoS wstrzyknięty
+w losowym miejscu i o losowej amplitudzie (3×–10×), plus jawna
+kontrola negatywna (identyczne tło, bez ataku).
+
+**Wyniki (300+300 prób, jeden przebieg, seed=42):**
+
+| Metryka | Wynik |
+|---|---|
+| Wskaźnik wykrycia ataku (`twist()`) | **100% (300/300)** |
+| Fałszywy alarm w próbach z atakiem (poza oknem ataku) | 16,3% (49/300) |
+| Fałszywy alarm w próbach BEZ ataku (kontrola negatywna) | **23,0% (69/300)** |
+| — z czego z `ratio_twist` | 0,0% |
+| — z czego z `connection_twist` | 23,0% |
+| `anomaly_score`: mediana w oknie ataku vs w czystym tle | 14,6 vs 1,4 (test Manna-Whitneya, p≈0) |
+
+**Uczciwa interpretacja:** metoda ma bardzo dobrą *czułość* (nigdy nie
+przegapiła wstrzykniętego ataku w 300 próbach) i `anomaly_score` bardzo
+wyraźnie statystycznie separuje atak od tła. **Ale** ma niezaniedbywalny
+odsetek fałszywych alarmów na czystym, bezatakowym ruchu (~23%),
+wyłącznie z `connection_twist` (robust z-score na `connections`) —
+`ratio_twist` w tym eksperymencie nie dał ani jednego fałszywego
+alarmu. To znaczy: **próg domyślny `conns_z_thresh=3.5` jest zbyt
+czuły dla ruchu z szumem Poissona na liczbie połączeń** (szum
+Poissona + gradient względem czasu nie jest dokładnie i.i.d. normalny,
+na czym z-score milcząco polega) — to nie jest błąd w kodzie, tylko
+potwierdzenie własnego zastrzeżenia w README ("progi domyślne to
+punkt startowy do dostrojenia, nie zwalidowana wartość"), teraz z
+konkretną liczbą zamiast ogólnika. W praktyce: ten detektor NADAJE
+SIĘ jako pierwszy filtr/przesiewacz dla analityka (zastosowanie 1
+poniżej), ale przy tym progu wygenerowałby fałszywy alarm dot.
+connections na jakiejś części normalnych okien ruchu — próg wymaga
+dostrojenia do konkretnego ruchu produkcyjnego przed użyciem
+operacyjnym.
+
 ## 🎯 Zastosowania (i warunki, przy których mają sens)
 
 **1. IDS/IPS — flagowanie do przeglądu, nie automatyczna blokada**
