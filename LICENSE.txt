@@ -1,4 +1,0 @@
-Copyright (c) 2026 Jacek Kielich
-
-This software is proprietary.
-Unauthorized use, copying, modification, or distribution is strictly prohibited.
