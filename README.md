@@ -13,14 +13,26 @@ szumu, anomaly score) plus analiza rytmiczności (autokorelacja):
   (autokorelacja, `[value]` lub `[v1..vk]`) — domyka lukę opisaną
   wcześniej w punkcie 4 "Zastosowań" (patrz niżej), gdzie zaznaczyliśmy,
   że żaden z pozostałych detektorów faktycznie nie wykrywa rytmiczności.
+- **`timdr_security_trigger.py`** — cienki dispatcher NAD powyższymi
+  dwoma modułami (flow + server). Sam nie liczy żadnej statystyki i nie
+  jest walidatorem — tylko czujnik, który pyta `twist()`/`anomaly_score()`/
+  `trend()` i mówi, który typ sygnału odpalił się pierwszy i gdzie,
+  żeby dało się od razu skierować alert do właściwego modułu. Patrz
+  naprawki opisane w nagłówku pliku (dostarczona wersja w ogóle nie
+  działała na prawdziwym kształcie zwracanym przez `twist()`/`trend()`).
 
 ## Status
 
 `timdr_security.py`: 7/7 testów. `timdr_server.py`: 15/15 testów
 (łącznie z testami dla `timdr_security.py`). `timdr_rhythm.py`: 12/12
-testów. Łącznie 27/27. Znalezione i naprawione: 3 błędy w
-`timdr_security.py` (w tym jeden powodujący, że własny przykład DDoS z
-opisu zgłoszenia nie był wykrywany) i 2 błędy w `timdr_rhythm.py`.
+testów. `timdr_security_trigger.py`: 8/8 testów. Łącznie 35/35.
+Znalezione i naprawione: 3 błędy w `timdr_security.py` (w tym jeden
+powodujący, że własny przykład DDoS z opisu zgłoszenia nie był
+wykrywany), 2 błędy w `timdr_rhythm.py`, oraz `timdr_security_trigger.py`
+naprawiony od zera — dostarczona wersja zakładała inny kształt danych
+niż ten, który faktycznie zwracają `twist()`/`anomaly_score()`/`trend()`,
+więc wywalała się na pierwszym prawdziwym wejściu (szczegóły w nagłówku
+pliku).
 
 ## 🐛 Błędy znalezione w oryginalnym `timdr_security.py`
 
@@ -257,7 +269,12 @@ print(srv.trend(metrics, column=1))  # dryf mem_pct
 
 rhythm = TIMDRRhythm(max_lag=60, min_period=3, power_thresh=0.4)
 periods, score = rhythm.beacon_score(X)  # X: [bytes, connections, ...] per krok czasowy
+
+from timdr_security_trigger import TIMDRSecurityTrigger
+trigger = TIMDRSecurityTrigger()
+print(trigger.analyze_flow(flow).as_dict())      # {"triggered": True, "type": "pattern_change", ...}
+print(trigger.analyze_server(metrics).as_dict())  # {"triggered": True, "type": "scale_change", ...}
 ```
 
-Uruchomienie: `python demo.py` (security/server) / `python demo_rhythm.py`
-(rhythm) / testy: `pytest -q`.
+Uruchomienie: `python demo.py` (security/server + trigger) /
+`python demo_rhythm.py` (rhythm) / testy: `pytest -q`.

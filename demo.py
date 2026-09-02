@@ -1,5 +1,6 @@
 from timdr_security import TIMDRSecurity
 from timdr_server import TIMDRServer
+from timdr_security_trigger import TIMDRSecurityTrigger
 
 print("=== TIMDR Security (siec) ===")
 sec = TIMDRSecurity()
@@ -32,3 +33,8 @@ t = [0, 10, 20, 30]
 print("Surowy licznik ->", counters)
 print("Rate bez obslugi resetu:", srv.counters_to_rates(counters, t, handle_resets=False))
 print("Rate z obsluga resetu:  ", srv.counters_to_rates(counters, t, handle_resets=True))
+
+print("\n=== TIMDR Security Trigger (dispatcher, nie model) ===")
+trigger = TIMDRSecurityTrigger()
+print("Flow (ten sam DDoS co wyzej) ->", trigger.analyze_flow(flow).as_dict())
+print("Server (ten sam skok co wyzej) ->", trigger.analyze_server(metrics).as_dict())
