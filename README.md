@@ -1,5 +1,9 @@
 # TIMDR Security Module + TIMDR Server Module + TIMDR Rhythm Analyzer
 
+<!-- TIMDR HUB LINKS -->
+> **Ekosystem TIMDR:** [Knowledge Hub — dokumentacja i wyszukiwarka](https://jbackk-lang.github.io/TIMDR-AI-Knowledge-Base/) · [Panel badawczy](https://jbackk-lang.github.io/) · [GIA-TIMDR — źródła](https://github.com/jbackk-lang/GIA-TIMDR) · [Research AI — lokalne wyszukiwanie semantyczne](https://github.com/jbackk-lang/TIMDR-AI-Knowledge-Base). Publiczna wyszukiwarka Huba jest tekstowa; semantyczna wymaga lokalnego uruchomienia.
+<!-- /TIMDR HUB LINKS -->
+
 Trzy moduły do wykrywania anomalii i wzorców w ruchu sieciowym/serwerowym
 metodą TIMDR (gradient przepływu, "twist" = nagła zmiana, TRM = redukcja
 szumu, anomaly score) plus analiza rytmiczności (autokorelacja):
